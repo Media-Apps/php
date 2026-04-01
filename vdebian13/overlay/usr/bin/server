@@ -9,4 +9,7 @@ if [[ -z "${PHP_FPM_ENTRYPOINT_INITIALIZED}" ]]; then
   done
 fi
 
-exec /opt/php-7.4/sbin/php-fpm --nodaemonize --fpm-config /opt/php-7.4/etc/php-fpm.conf
+echo "Starting apache daemon..."
+echo "Starting php-fpm daemon..."
+/opt/php-7.4/sbin/php-fpm --fpm-config /opt/php-7.4/etc/php-fpm.conf --daemonize
+exec apachectl -f /etc/apache2/apache2.conf -DFOREGROUND

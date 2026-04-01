@@ -10,3 +10,9 @@ if [[ -z "${PHP_FPM_ENTRYPOINT_INITIALIZED}" ]]; then
 fi
 
 /opt/php-7.4/sbin/php-fpm -t >/dev/null 2>&1
+CHECK="$(curl -sL -w "%{http_code}" -o /dev/null "http://localhost:${APACHE_LISTEN:-8080}/")"
+if [[ "${CHECK}" == "200" ]]; then
+  exit 0
+fi
+
+exit 1
