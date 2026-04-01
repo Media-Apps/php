@@ -12,4 +12,11 @@ fi
 echo "Starting apache daemon..."
 echo "Starting php-fpm daemon..."
 /opt/php-7.4/sbin/php-fpm --fpm-config /opt/php-7.4/etc/php-fpm.conf --daemonize
+
+# Use writable paths for non-root Apache runtime state.
+export APACHE_RUN_DIR="${APACHE_RUN_DIR:-/tmp/apache2/run}"
+export APACHE_LOCK_DIR="${APACHE_LOCK_DIR:-/tmp/apache2/lock}"
+export APACHE_LOG_DIR="${APACHE_LOG_DIR:-/tmp/apache2/log}"
+export APACHE_PID_FILE="${APACHE_PID_FILE:-${APACHE_RUN_DIR}/apache2.pid}"
+mkdir -p "${APACHE_RUN_DIR}" "${APACHE_LOCK_DIR}" "${APACHE_LOG_DIR}"
 exec apachectl -f /etc/apache2/apache2.conf -DFOREGROUND

@@ -96,6 +96,9 @@ RUN set -eux; \
   cp /usr/src/php/php.ini-production "${PHP_INI_DIR}/php.ini"; \
   cp /usr/src/php/sapi/fpm/php-fpm.conf "${PHP_PREFIX}/etc/php-fpm.conf"; \
   cp /usr/src/php/sapi/fpm/www.conf "${PHP_PREFIX}/etc/php-fpm.d/www.conf"; \
+  mkdir -p "${PHP_PREFIX}/var/log"; \
+  touch "${PHP_PREFIX}/var/log/php-fpm.log"; \
+  chown -R 33:33 "${PHP_PREFIX}/var"; \
   sed -ri 's!^;?daemonize =.*!daemonize = no!' "${PHP_PREFIX}/etc/php-fpm.conf"; \
   sed -ri 's!^listen = .*!listen = 9000!' "${PHP_PREFIX}/etc/php-fpm.d/www.conf"
 
@@ -163,6 +166,12 @@ RUN set -eux; \
     gnupg \
     libnss-wrapper; \
   a2enmod proxy proxy_fcgi setenvif rewrite headers env dir mime expires remoteip; \
+  sed -ri 's!^export APACHE_RUN_DIR=.*!export APACHE_RUN_DIR=/tmp/apache2/run!' /etc/apache2/envvars; \
+  sed -ri 's!^export APACHE_LOCK_DIR=.*!export APACHE_LOCK_DIR=/tmp/apache2/lock!' /etc/apache2/envvars; \
+  sed -ri 's!^export APACHE_LOG_DIR=.*!export APACHE_LOG_DIR=/tmp/apache2/log!' /etc/apache2/envvars; \
+  sed -ri 's!^export APACHE_PID_FILE=.*!export APACHE_PID_FILE=/tmp/apache2/run/apache2.pid!' /etc/apache2/envvars; \
+  mkdir -p /tmp/apache2/run /tmp/apache2/lock /tmp/apache2/log; \
+  chown -R 33:33 /tmp/apache2; \
   mkdir -p /etc/apache2/sites-enabled "${PHP_INI_DIR}/conf.d"; \
   touch /etc/apache2/sites-enabled/default.conf "${PHP_INI_DIR}/conf.d/90-owncloud.ini"; \
   chgrp root /etc/apache2/sites-enabled/default.conf "${PHP_INI_DIR}/conf.d/90-owncloud.ini"; \
@@ -197,6 +206,7 @@ ENV PATH=${PHP_PREFIX}/bin:${PHP_PREFIX}/sbin:${PATH}
 
 COPY --from=builder ${PHP_PREFIX} ${PHP_PREFIX}
 COPY --from=builder /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
+COPY --from=builder /usr/lib/apache2 /usr/lib/apache2
 COPY --from=builder /lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
 COPY --from=builder /etc/apache2 /etc/apache2
 COPY --from=builder /usr/sbin /usr/sbin
@@ -205,6 +215,9 @@ COPY --from=builder /usr/local/bin/gomplate /usr/local/bin/gomplate
 COPY --from=builder /var/lib/apache2 /var/lib/apache2
 COPY --from=builder /var/log/apache2 /var/log/apache2
 COPY --from=builder /var/spool/cron /var/spool/cron
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/group /etc/group
+COPY --from=builder /etc/mime.types /etc/mime.types
 
 ADD overlay /
 
