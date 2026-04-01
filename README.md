@@ -23,6 +23,7 @@ ownCloud Docker PHP and webserver base image.
 
 - [`20.04`](https://github.com/owncloud-docker/php/blob/master/v20.04/Dockerfile.multiarch) available as `owncloud/php:20.04`, `owncloud/php:latest`
 - [`22.04`](https://github.com/owncloud-docker/php/blob/master/v22.04/Dockerfile.multiarch) available as `owncloud/php:22.04`
+- [`debian13`](./vdebian13/Dockerfile.multiarch) available as `ghcr.io/<owner>/php:debian13`
 
 ## Default volumes
 

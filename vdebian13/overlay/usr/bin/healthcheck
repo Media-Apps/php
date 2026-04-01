@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ "${DEBUG}" == "true" ]] && set -x
+
+if [[ -z "${PHP_FPM_ENTRYPOINT_INITIALIZED}" ]]; then
+  for FILE in $(find /etc/entrypoint.d -iname "*.sh" | sort); do
+    # shellcheck disable=SC1090,SC2086
+    source ${FILE}
+  done
+fi
+
+/opt/php-7.4/sbin/php-fpm -t >/dev/null 2>&1

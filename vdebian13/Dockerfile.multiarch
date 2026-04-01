@@ -1,0 +1,125 @@
+ARG DHI_BUILDER_IMAGE=dhi.io/debian-base:trixie-dev
+ARG DHI_RUNTIME_IMAGE=dhi.io/debian-base:trixie
+
+FROM ${DHI_BUILDER_IMAGE} AS builder
+
+ARG PHP_VERSION=7.4.33
+ARG PHP_PREFIX=/opt/php-7.4
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PHP_PREFIX=${PHP_PREFIX}
+ENV PHP_INI_DIR=${PHP_PREFIX}/etc/php
+
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    autoconf \
+    automake \
+    bison \
+    build-essential \
+    pkg-config \
+    re2c \
+    libxml2-dev \
+    libsqlite3-dev \
+    libcurl4-openssl-dev \
+    libonig-dev \
+    libzip-dev \
+    zlib1g-dev \
+    libpng-dev \
+    libjpeg62-turbo-dev \
+    libfreetype6-dev \
+    libwebp-dev \
+    libldap2-dev \
+    libpq-dev \
+    libkrb5-dev \
+    libsasl2-dev \
+    libssl-dev \
+    libreadline-dev \
+    libsmbclient-dev; \
+  rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+  curl -fsSL "https://www.php.net/distributions/php-${PHP_VERSION}.tar.xz" -o /tmp/php.tar.xz; \
+  mkdir -p /usr/src/php; \
+  tar -xf /tmp/php.tar.xz -C /usr/src/php --strip-components=1; \
+  rm -f /tmp/php.tar.xz
+
+RUN set -eux; \
+  cd /usr/src/php; \
+  ./buildconf --force; \
+  ./configure \
+    --prefix="${PHP_PREFIX}" \
+    --with-config-file-path="${PHP_INI_DIR}" \
+    --with-config-file-scan-dir="${PHP_INI_DIR}/conf.d" \
+    --enable-fpm \
+    --with-fpm-user=www-data \
+    --with-fpm-group=www-data \
+    --enable-mbstring \
+    --enable-soap \
+    --enable-bcmath \
+    --enable-pcntl \
+    --enable-opcache \
+    --with-zlib \
+    --with-curl \
+    --with-readline \
+    --with-zip \
+    --with-kerberos \
+    --with-ldap \
+    --with-ldap-sasl \
+    --with-pgsql \
+    --with-pdo-pgsql \
+    --with-mysqli=mysqlnd \
+    --with-pdo-mysql=mysqlnd \
+    --with-sqlite3 \
+    --with-pdo-sqlite \
+    --with-gd \
+    --with-freetype \
+    --with-jpeg \
+    --with-webp; \
+  make -j"$(nproc)"; \
+  make install
+
+RUN set -eux; \
+  mkdir -p "${PHP_INI_DIR}/conf.d" "${PHP_PREFIX}/etc/php-fpm.d"; \
+  cp /usr/src/php/php.ini-production "${PHP_INI_DIR}/php.ini"; \
+  cp /usr/src/php/sapi/fpm/php-fpm.conf "${PHP_PREFIX}/etc/php-fpm.conf"; \
+  cp /usr/src/php/sapi/fpm/www.conf "${PHP_PREFIX}/etc/php-fpm.d/www.conf"; \
+  sed -ri 's!^;?daemonize =.*!daemonize = no!' "${PHP_PREFIX}/etc/php-fpm.conf"; \
+  sed -ri 's!^listen = .*!listen = 9000!' "${PHP_PREFIX}/etc/php-fpm.d/www.conf"
+
+RUN set -eux; \
+  export PATH="${PHP_PREFIX}/bin:${PATH}"; \
+  pecl channel-update pecl.php.net; \
+  printf "\n" | pecl install redis-5.3.7; \
+  printf "\n" | pecl install smbclient-1.1.2; \
+  printf '%s\n' \
+    'extension=redis.so' \
+    'extension=smbclient.so' \
+    > "${PHP_INI_DIR}/conf.d/50-extra.ini"; \
+  "${PHP_PREFIX}/sbin/php-fpm" -t
+
+FROM ${DHI_RUNTIME_IMAGE}
+
+ARG PHP_PREFIX=/opt/php-7.4
+
+ENV PHP_PREFIX=${PHP_PREFIX}
+ENV PHP_INI_DIR=${PHP_PREFIX}/etc/php
+ENV PATH=${PHP_PREFIX}/bin:${PHP_PREFIX}/sbin:${PATH}
+
+COPY --from=builder ${PHP_PREFIX} ${PHP_PREFIX}
+COPY --from=builder /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
+COPY --from=builder /lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
+
+ADD overlay /
+
+RUN chmod +x /usr/bin/entrypoint /usr/bin/server /usr/bin/healthcheck
+
+EXPOSE 9000
+
+USER www-data
+WORKDIR /var/www/html
+
+ENTRYPOINT ["/usr/bin/entrypoint"]
+CMD ["/usr/bin/server"]
