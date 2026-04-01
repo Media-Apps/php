@@ -91,14 +91,28 @@ RUN set -eux; \
 
 RUN set -eux; \
   export PATH="${PHP_PREFIX}/bin:${PATH}"; \
-  pecl channel-update pecl.php.net; \
-  printf "\n" | pecl install redis-5.3.7; \
-  printf "\n" | pecl install smbclient-1.1.2; \
+  curl -fsSL "https://pecl.php.net/get/redis-5.3.7.tgz" -o /tmp/redis.tgz; \
+  mkdir -p /usr/src/redis; \
+  tar -xzf /tmp/redis.tgz -C /usr/src/redis --strip-components=1; \
+  cd /usr/src/redis; \
+  phpize; \
+  ./configure --with-php-config="${PHP_PREFIX}/bin/php-config"; \
+  make -j"$(nproc)"; \
+  make install; \
+  curl -fsSL "https://pecl.php.net/get/smbclient-1.1.2.tgz" -o /tmp/smbclient.tgz; \
+  mkdir -p /usr/src/smbclient; \
+  tar -xzf /tmp/smbclient.tgz -C /usr/src/smbclient --strip-components=1; \
+  cd /usr/src/smbclient; \
+  phpize; \
+  ./configure --with-php-config="${PHP_PREFIX}/bin/php-config"; \
+  make -j"$(nproc)"; \
+  make install; \
   printf '%s\n' \
     'extension=redis.so' \
     'extension=smbclient.so' \
     > "${PHP_INI_DIR}/conf.d/50-extra.ini"; \
-  "${PHP_PREFIX}/sbin/php-fpm" -t
+  "${PHP_PREFIX}/sbin/php-fpm" -t; \
+  rm -rf /tmp/redis.tgz /tmp/smbclient.tgz /usr/src/redis /usr/src/smbclient
 
 FROM ${DHI_RUNTIME_IMAGE}
 
@@ -114,12 +128,10 @@ COPY --from=builder /lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
 
 ADD overlay /
 
-RUN chmod +x /usr/bin/entrypoint /usr/bin/server /usr/bin/healthcheck
-
 EXPOSE 9000
 
 USER www-data
 WORKDIR /var/www/html
 
-ENTRYPOINT ["/usr/bin/entrypoint"]
-CMD ["/usr/bin/server"]
+ENTRYPOINT ["/bin/bash", "/usr/bin/entrypoint"]
+CMD ["/bin/bash", "/usr/bin/server"]
