@@ -44,8 +44,23 @@ RUN set -eux; \
     libsasl2-dev \
     libssl-dev \
     libreadline-dev \
+    locales \
     libsmbclient-dev; \
   rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+  printf '%s\n' \
+    'en_US.UTF-8 UTF-8' \
+    'fr_FR.UTF-8 UTF-8' \
+    'es_ES.UTF-8 UTF-8' \
+    'de_DE.UTF-8 UTF-8' \
+    'ru_RU.UTF-8 UTF-8' \
+    'pt_BR.UTF-8 UTF-8' \
+    'it_IT.UTF-8 UTF-8' \
+    'ja_JP.UTF-8 UTF-8' \
+    'zh_CN.UTF-8 UTF-8' \
+    > /etc/locale.gen; \
+  locale-gen
 
 RUN set -eux; \
   curl -fsSL "https://www.php.net/distributions/php-${PHP_VERSION}.tar.xz" -o /tmp/php.tar.xz; \
@@ -84,7 +99,7 @@ RUN set -eux; \
     --with-pdo-mysql=mysqlnd \
     --with-sqlite3 \
     --with-pdo-sqlite \
-    --with-gd \
+    --enable-gd \
     --with-freetype \
     --with-jpeg \
     --with-webp; \
@@ -100,7 +115,8 @@ RUN set -eux; \
   touch "${PHP_PREFIX}/var/log/php-fpm.log"; \
   chown -R 33:33 "${PHP_PREFIX}/var"; \
   sed -ri 's!^;?daemonize =.*!daemonize = no!' "${PHP_PREFIX}/etc/php-fpm.conf"; \
-  sed -ri 's!^listen = .*!listen = 9000!' "${PHP_PREFIX}/etc/php-fpm.d/www.conf"
+  sed -ri 's!^listen = .*!listen = 9000!' "${PHP_PREFIX}/etc/php-fpm.d/www.conf"; \
+  sed -ri 's!^;?clear_env =.*!clear_env = no!' "${PHP_PREFIX}/etc/php-fpm.d/www.conf"
 
 RUN set -eux; \
   export PATH="${PHP_PREFIX}/bin:${PATH}"; \
@@ -173,9 +189,10 @@ RUN set -eux; \
   mkdir -p /tmp/apache2/run /tmp/apache2/lock /tmp/apache2/log; \
   chown -R 33:33 /tmp/apache2; \
   mkdir -p /etc/apache2/sites-enabled "${PHP_INI_DIR}/conf.d"; \
-  touch /etc/apache2/sites-enabled/default.conf "${PHP_INI_DIR}/conf.d/90-owncloud.ini"; \
-  chgrp root /etc/apache2/sites-enabled/default.conf "${PHP_INI_DIR}/conf.d/90-owncloud.ini"; \
-  chmod g+w /etc/apache2/sites-enabled/default.conf "${PHP_INI_DIR}/conf.d/90-owncloud.ini"; \
+  rm -f /etc/apache2/sites-enabled/000-default.conf; \
+  touch /etc/apache2/sites-enabled/default.conf /etc/apache2/sites-enabled/000-default.conf "${PHP_INI_DIR}/conf.d/90-owncloud.ini" "${PHP_INI_DIR}/conf.d/91-owncloud-web.ini"; \
+  chgrp root /etc/apache2/sites-enabled/default.conf /etc/apache2/sites-enabled/000-default.conf "${PHP_INI_DIR}/conf.d/90-owncloud.ini" "${PHP_INI_DIR}/conf.d/91-owncloud-web.ini"; \
+  chmod g+w /etc/apache2/sites-enabled/default.conf /etc/apache2/sites-enabled/000-default.conf "${PHP_INI_DIR}/conf.d/90-owncloud.ini" "${PHP_INI_DIR}/conf.d/91-owncloud-web.ini"; \
   rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
@@ -196,6 +213,73 @@ RUN set -eux; \
   curl -fsSL "https://github.com/owncloud-ci/retry/releases/download/${RETRY_VERSION}/retry" -o /usr/bin/retry; \
   chmod +x /usr/local/bin/gomplate /usr/bin/wait-for /usr/bin/retry
 
+# Minimal runtime executables (avoid copying full /usr/bin and /usr/sbin from the builder, which includes apt/dpkg).
+RUN set -eux; \
+  dest=/opt/runtime-paths; \
+  rm -rf "$dest"; \
+  mkdir -p "$dest"; \
+  copy_to() { \
+    src="$1"; \
+    rel="$2"; \
+    if [ ! -e "$src" ]; then echo "runtime-paths: missing $src" >&2; exit 1; fi; \
+    mkdir -p "$dest/$(dirname "$rel")"; \
+    cp -a "$src" "$dest/$rel"; \
+  }; \
+  copy_to /bin/bash usr/bin/bash; \
+  copy_to /bin/sh usr/bin/sh; \
+  for f in \
+    env \
+    curl \
+    sed \
+    find \
+    sort \
+    xargs \
+    grep \
+    getent \
+    id \
+    tr \
+    cut \
+    basename \
+    setpriv \
+    mawk \
+    awk \
+    stat \
+    mktemp \
+    readlink \
+    chmod \
+    chown \
+    mkdir \
+    rm \
+    ln \
+    mv \
+    cat \
+    ls \
+    cp \
+    sleep \
+    date \
+    uname \
+    touch \
+    rmdir \
+    head \
+    tail \
+    wc \
+    wait-for \
+    retry \
+  ; do \
+    copy_to "/usr/bin/$f" "usr/bin/$f"; \
+  done; \
+  for f in apache2 apache2ctl apachectl cron; do \
+    copy_to "/usr/sbin/$f" "usr/sbin/$f"; \
+  done; \
+  copy_to /usr/local/bin/gomplate usr/local/bin/gomplate; \
+  mkdir -p "$dest/etc/pam.d" "$dest/etc/default" "$dest/etc/ssl/certs"; \
+  cp -a /etc/pam.d/cron "$dest/etc/pam.d/cron"; \
+  cp -a /etc/default/cron "$dest/etc/default/cron"; \
+  test -f /etc/ssl/certs/ca-certificates.crt; \
+  cp -a /etc/ssl/certs/ca-certificates.crt "$dest/etc/ssl/certs/ca-certificates.crt"; \
+  mkdir -p "$dest/usr/lib"; \
+  ln -sf /usr/lib/x86_64-linux-gnu/libnss_wrapper.so "$dest/usr/lib/libnss_wrapper.so"
+
 FROM ${DHI_RUNTIME_IMAGE}
 
 ARG PHP_PREFIX=/opt/php-7.4
@@ -207,17 +291,19 @@ ENV PATH=${PHP_PREFIX}/bin:${PHP_PREFIX}/sbin:${PATH}
 COPY --from=builder ${PHP_PREFIX} ${PHP_PREFIX}
 COPY --from=builder /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
 COPY --from=builder /usr/lib/apache2 /usr/lib/apache2
+COPY --from=builder /usr/lib/locale /usr/lib/locale
 COPY --from=builder /lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
 COPY --from=builder /etc/apache2 /etc/apache2
-COPY --from=builder /usr/sbin /usr/sbin
-COPY --from=builder /usr/bin /usr/bin
-COPY --from=builder /usr/local/bin/gomplate /usr/local/bin/gomplate
+COPY --from=builder /opt/runtime-paths/ /
 COPY --from=builder /var/lib/apache2 /var/lib/apache2
 COPY --from=builder /var/log/apache2 /var/log/apache2
 COPY --from=builder /var/spool/cron /var/spool/cron
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
 COPY --from=builder /etc/mime.types /etc/mime.types
+# OwnCloud entrypoint writes Apache/PHP rendered configs here at runtime.
+COPY --from=builder --chown=www-data:www-data /etc/apache2/sites-enabled /etc/apache2/sites-enabled
+COPY --from=builder --chown=www-data:www-data ${PHP_PREFIX}/etc/php/conf.d ${PHP_PREFIX}/etc/php/conf.d
 
 ADD overlay /
 
